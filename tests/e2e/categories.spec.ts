@@ -16,11 +16,14 @@ test.describe("Categories CRUD", () => {
     await page.getByLabel("Name").fill("Test Category");
     await page.getByLabel("Color").fill("#ff5733");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     await expect(
       page.getByRole("heading", { name: "Create Category" }),
     ).toBeHidden();
-    await expect(page.getByText("Test Category")).toBeVisible();
+    await expect(
+      page.getByTestId("category-row").getByText("Test Category", { exact: true }),
+    ).toBeVisible();
   });
 
   test("creates a sub-category under an existing parent", async ({ page }) => {
@@ -28,17 +31,23 @@ test.describe("Categories CRUD", () => {
     await page.getByLabel("Name").fill("Parent Category");
     await page.getByLabel("Color").fill("#3f51b5");
     await page.getByRole("button", { name: "Create Category" }).click();
-    await expect(page.getByText("Parent Category")).toBeVisible();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(
+      page.getByTestId("category-row").getByText("Parent Category", { exact: true }),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Test Sub-Category");
     await page.getByLabel("Parent Category").selectOption("Parent Category");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     await expect(
       page.getByRole("heading", { name: "Create Category" }),
     ).toBeHidden();
-    await expect(page.getByText("Test Sub-Category")).toBeVisible();
+    await expect(
+      page.getByTestId("category-row").getByText("Test Sub-Category", { exact: true }),
+    ).toBeVisible();
   });
 
   test("shows validation error when name is empty", async ({ page }) => {
@@ -56,7 +65,10 @@ test.describe("Categories CRUD", () => {
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Edit Me");
     await page.getByRole("button", { name: "Create Category" }).click();
-    await expect(page.getByText("Edit Me")).toBeVisible();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(
+      page.getByTestId("category-row").getByText("Edit Me", { exact: true }),
+    ).toBeVisible();
 
     const row = page.getByTestId("category-row").filter({ hasText: "Edit Me" });
     await row.getByTestId("edit-category").click();
@@ -77,10 +89,12 @@ test.describe("Categories CRUD", () => {
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Target Parent");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Move Me");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     const moveMeRow = page
       .getByTestId("category-row")
@@ -89,13 +103,16 @@ test.describe("Categories CRUD", () => {
     await page.getByLabel("Parent Category").selectOption("Target Parent");
     await page.getByRole("button", { name: "Save Changes" }).click();
 
-    await expect(page.getByText("Move Me")).toBeVisible();
+    await expect(
+      page.getByTestId("category-row").getByText("Move Me", { exact: true }),
+    ).toBeVisible();
   });
 
   test("deletes a category with no children", async ({ page }) => {
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Delete Me");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     const deleteMeRow = page.getByRole("row").filter({ hasText: "Delete Me" });
     await deleteMeRow.getByRole("button", { name: "Delete" }).click();
@@ -118,9 +135,11 @@ test.describe("Categories CRUD", () => {
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Old Category");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("New Category");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     // Create an account and a transaction in "Old Category"
     await page.getByRole("link", { name: "Accounts" }).click();
@@ -208,14 +227,18 @@ test.describe("Categories CRUD", () => {
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Parent With Child");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     await page.getByRole("button", { name: "Add Category" }).click();
     await page.getByLabel("Name").fill("Child Category");
     await page.getByLabel("Parent Category").selectOption("Parent With Child");
     await page.getByRole("button", { name: "Create Category" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
 
     // Verify child appears indented under parent
-    await expect(page.getByText("Child Category")).toBeVisible();
+    await expect(
+      page.getByTestId("category-row").getByText("Child Category", { exact: true }),
+    ).toBeVisible();
 
     const parentRow = page
       .getByTestId("category-row")
@@ -236,6 +259,8 @@ test.describe("Categories CRUD", () => {
     await expect(
       page.locator("main").getByText("Parent With Child"),
     ).toBeHidden();
-    await expect(page.getByText("Child Category")).toBeHidden();
+    await expect(
+      page.getByTestId("category-row").getByText("Child Category", { exact: true }),
+    ).toBeHidden();
   });
 });
