@@ -112,7 +112,12 @@ export async function collectUserExport(userId: string) {
     .where(eq(schema.subscriptions.user_id, userId))
     .limit(1);
 
+  const budgets = await db.select().from(schema.budgets).where(eq(schema.budgets.user_id, userId));
+  const budgetNotifications = await db.select().from(schema.budget_notifications).where(eq(schema.budget_notifications.user_id, userId));
+
   return {
+    budgets,
+    budgetNotifications,
     user,
     accounts,
     categories,
@@ -142,6 +147,8 @@ export async function buildExportZip(userId: string): Promise<Uint8Array> {
         version: 1,
         exportedAt: new Date().toISOString(),
         user: data.user,
+        budgets: data.budgets,
+        budgetNotifications: data.budgetNotifications,
         accounts: data.accounts,
         categories: data.categories,
         transactions: data.transactions,
@@ -163,6 +170,15 @@ export async function buildExportZip(userId: string): Promise<Uint8Array> {
       2,
     ),
   );
+
+  files["budgets.csv"] = strToU8(toCsv(
+    ["id", "category_id", "currency", "limit_minor", "created_at", "updated_at"],
+    data.budgets.map((b) => [b.id, b.category_id, b.currency, b.limit_minor, b.created_at.toISOString(), b.updated_at.toISOString()]),
+  ));
+  files["budget_notifications.csv"] = strToU8(toCsv(
+    ["id", "budget_id", "period_start", "state", "attempted_at", "sent_at"],
+    data.budgetNotifications.map((n) => [n.id, n.budget_id, n.period_start, n.state, n.attempted_at.toISOString(), n.sent_at?.toISOString()]),
+  ));
 
   files["transactions.csv"] = strToU8(
     toCsv(
@@ -305,6 +321,8 @@ export async function hardDeleteUser(userId: string): Promise<void> {
   if (!user) return;
 
   await db.transaction(async (tx) => {
+    await tx.delete(schema.budget_notifications).where(eq(schema.budget_notifications.user_id, userId));
+    await tx.delete(schema.budgets).where(eq(schema.budgets.user_id, userId));
     const userReceiptIds = tx
       .select({ id: schema.receipts.id })
       .from(schema.receipts)

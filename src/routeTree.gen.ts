@@ -15,6 +15,8 @@ import { Route as TestSeedAiUsageRouteImport } from './routes/test-seed-ai-usage
 import { Route as TestRunSweepRouteImport } from './routes/test-run-sweep'
 import { Route as TestEmailsRouteImport } from './routes/test-emails'
 import { Route as TestCreateUserRouteImport } from './routes/test-create-user'
+import { Route as TestBudgetSweepRouteImport } from './routes/test-budget-sweep'
+import { Route as TestBudgetClockRouteImport } from './routes/test-budget-clock'
 import { Route as TestBackdateRouteImport } from './routes/test-backdate'
 import { Route as TestAddRuleRouteImport } from './routes/test-add-rule'
 import { Route as TermsRouteImport } from './routes/terms'
@@ -39,6 +41,7 @@ import { Route as AuthedImportRouteImport } from './routes/_authed/import'
 import { Route as AuthedDashboardRouteImport } from './routes/_authed/dashboard'
 import { Route as AuthedCategorizationRouteImport } from './routes/_authed/categorization'
 import { Route as AuthedCategoriesRouteImport } from './routes/_authed/categories'
+import { Route as AuthedBudgetsRouteImport } from './routes/_authed/budgets'
 import { Route as AuthedBillingRouteImport } from './routes/_authed/billing'
 import { Route as AuthedAccountsRouteImport } from './routes/_authed/accounts'
 import { Route as AuthedReceiptsScanRouteImport } from './routes/_authed/receipts/scan'
@@ -72,6 +75,16 @@ const TestEmailsRoute = TestEmailsRouteImport.update({
 const TestCreateUserRoute = TestCreateUserRouteImport.update({
   id: '/test-create-user',
   path: '/test-create-user',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestBudgetSweepRoute = TestBudgetSweepRouteImport.update({
+  id: '/test-budget-sweep',
+  path: '/test-budget-sweep',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestBudgetClockRoute = TestBudgetClockRouteImport.update({
+  id: '/test-budget-clock',
+  path: '/test-budget-clock',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TestBackdateRoute = TestBackdateRouteImport.update({
@@ -193,6 +206,11 @@ const AuthedCategoriesRoute = AuthedCategoriesRouteImport.update({
   path: '/categories',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedBudgetsRoute = AuthedBudgetsRouteImport.update({
+  id: '/budgets',
+  path: '/budgets',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedBillingRoute = AuthedBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
@@ -229,6 +247,8 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/test-add-rule': typeof TestAddRuleRoute
   '/test-backdate': typeof TestBackdateRoute
+  '/test-budget-clock': typeof TestBudgetClockRoute
+  '/test-budget-sweep': typeof TestBudgetSweepRoute
   '/test-create-user': typeof TestCreateUserRoute
   '/test-emails': typeof TestEmailsRoute
   '/test-run-sweep': typeof TestRunSweepRoute
@@ -237,6 +257,7 @@ export interface FileRoutesByFullPath {
   '/verify-email': typeof VerifyEmailRoute
   '/accounts': typeof AuthedAccountsRoute
   '/billing': typeof AuthedBillingRoute
+  '/budgets': typeof AuthedBudgetsRoute
   '/categories': typeof AuthedCategoriesRoute
   '/categorization': typeof AuthedCategorizationRoute
   '/dashboard': typeof AuthedDashboardRoute
@@ -264,6 +285,8 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/test-add-rule': typeof TestAddRuleRoute
   '/test-backdate': typeof TestBackdateRoute
+  '/test-budget-clock': typeof TestBudgetClockRoute
+  '/test-budget-sweep': typeof TestBudgetSweepRoute
   '/test-create-user': typeof TestCreateUserRoute
   '/test-emails': typeof TestEmailsRoute
   '/test-run-sweep': typeof TestRunSweepRoute
@@ -272,6 +295,7 @@ export interface FileRoutesByTo {
   '/verify-email': typeof VerifyEmailRoute
   '/accounts': typeof AuthedAccountsRoute
   '/billing': typeof AuthedBillingRoute
+  '/budgets': typeof AuthedBudgetsRoute
   '/categories': typeof AuthedCategoriesRoute
   '/categorization': typeof AuthedCategorizationRoute
   '/dashboard': typeof AuthedDashboardRoute
@@ -301,6 +325,8 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/test-add-rule': typeof TestAddRuleRoute
   '/test-backdate': typeof TestBackdateRoute
+  '/test-budget-clock': typeof TestBudgetClockRoute
+  '/test-budget-sweep': typeof TestBudgetSweepRoute
   '/test-create-user': typeof TestCreateUserRoute
   '/test-emails': typeof TestEmailsRoute
   '/test-run-sweep': typeof TestRunSweepRoute
@@ -309,6 +335,7 @@ export interface FileRoutesById {
   '/verify-email': typeof VerifyEmailRoute
   '/_authed/accounts': typeof AuthedAccountsRoute
   '/_authed/billing': typeof AuthedBillingRoute
+  '/_authed/budgets': typeof AuthedBudgetsRoute
   '/_authed/categories': typeof AuthedCategoriesRoute
   '/_authed/categorization': typeof AuthedCategorizationRoute
   '/_authed/dashboard': typeof AuthedDashboardRoute
@@ -338,6 +365,8 @@ export interface FileRouteTypes {
     | '/terms'
     | '/test-add-rule'
     | '/test-backdate'
+    | '/test-budget-clock'
+    | '/test-budget-sweep'
     | '/test-create-user'
     | '/test-emails'
     | '/test-run-sweep'
@@ -346,6 +375,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/accounts'
     | '/billing'
+    | '/budgets'
     | '/categories'
     | '/categorization'
     | '/dashboard'
@@ -373,6 +403,8 @@ export interface FileRouteTypes {
     | '/terms'
     | '/test-add-rule'
     | '/test-backdate'
+    | '/test-budget-clock'
+    | '/test-budget-sweep'
     | '/test-create-user'
     | '/test-emails'
     | '/test-run-sweep'
@@ -381,6 +413,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/accounts'
     | '/billing'
+    | '/budgets'
     | '/categories'
     | '/categorization'
     | '/dashboard'
@@ -409,6 +442,8 @@ export interface FileRouteTypes {
     | '/terms'
     | '/test-add-rule'
     | '/test-backdate'
+    | '/test-budget-clock'
+    | '/test-budget-sweep'
     | '/test-create-user'
     | '/test-emails'
     | '/test-run-sweep'
@@ -417,6 +452,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/_authed/accounts'
     | '/_authed/billing'
+    | '/_authed/budgets'
     | '/_authed/categories'
     | '/_authed/categorization'
     | '/_authed/dashboard'
@@ -446,6 +482,8 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   TestAddRuleRoute: typeof TestAddRuleRoute
   TestBackdateRoute: typeof TestBackdateRoute
+  TestBudgetClockRoute: typeof TestBudgetClockRoute
+  TestBudgetSweepRoute: typeof TestBudgetSweepRoute
   TestCreateUserRoute: typeof TestCreateUserRoute
   TestEmailsRoute: typeof TestEmailsRoute
   TestRunSweepRoute: typeof TestRunSweepRoute
@@ -498,6 +536,20 @@ declare module '@tanstack/react-router' {
       path: '/test-create-user'
       fullPath: '/test-create-user'
       preLoaderRoute: typeof TestCreateUserRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-budget-sweep': {
+      id: '/test-budget-sweep'
+      path: '/test-budget-sweep'
+      fullPath: '/test-budget-sweep'
+      preLoaderRoute: typeof TestBudgetSweepRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-budget-clock': {
+      id: '/test-budget-clock'
+      path: '/test-budget-clock'
+      fullPath: '/test-budget-clock'
+      preLoaderRoute: typeof TestBudgetClockRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/test-backdate': {
@@ -668,6 +720,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedCategoriesRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/budgets': {
+      id: '/_authed/budgets'
+      path: '/budgets'
+      fullPath: '/budgets'
+      preLoaderRoute: typeof AuthedBudgetsRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/billing': {
       id: '/_authed/billing'
       path: '/billing'
@@ -716,6 +775,7 @@ const AuthedReceiptsRouteWithChildren = AuthedReceiptsRoute._addFileChildren(
 interface AuthedRouteChildren {
   AuthedAccountsRoute: typeof AuthedAccountsRoute
   AuthedBillingRoute: typeof AuthedBillingRoute
+  AuthedBudgetsRoute: typeof AuthedBudgetsRoute
   AuthedCategoriesRoute: typeof AuthedCategoriesRoute
   AuthedCategorizationRoute: typeof AuthedCategorizationRoute
   AuthedDashboardRoute: typeof AuthedDashboardRoute
@@ -728,6 +788,7 @@ interface AuthedRouteChildren {
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedAccountsRoute: AuthedAccountsRoute,
   AuthedBillingRoute: AuthedBillingRoute,
+  AuthedBudgetsRoute: AuthedBudgetsRoute,
   AuthedCategoriesRoute: AuthedCategoriesRoute,
   AuthedCategorizationRoute: AuthedCategorizationRoute,
   AuthedDashboardRoute: AuthedDashboardRoute,
@@ -766,6 +827,8 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   TestAddRuleRoute: TestAddRuleRoute,
   TestBackdateRoute: TestBackdateRoute,
+  TestBudgetClockRoute: TestBudgetClockRoute,
+  TestBudgetSweepRoute: TestBudgetSweepRoute,
   TestCreateUserRoute: TestCreateUserRoute,
   TestEmailsRoute: TestEmailsRoute,
   TestRunSweepRoute: TestRunSweepRoute,

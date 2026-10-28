@@ -1,5 +1,7 @@
+import { deleteCategoryForUser } from "#/server/categories.server";
+import { reconcileBudgets } from "#/server/budget-alerts.server";
 import { createServerFn } from "@tanstack/react-start";
-import { eq, and, asc, count, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, count, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "#/db";
 import { requireUserId } from "#/server/session";
@@ -152,163 +154,76 @@ export const updateCategory = createServerFn({ method: "POST" })
   .inputValidator(updateCategorySchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    // A category can't be its own parent
-    if (data.parentId === data.id) {
-      return { error: "A category cannot be its own parent" };
-    }
+      // A category can't be its own parent
+      if (data.parentId === data.id) {
+        return { error: "A category cannot be its own parent" };
+      }
 
-    // Validate parent exists and belongs to user (if different from self)
-    if (data.parentId && data.parentId !== data.id) {
-      const parent = await db
-        .select({ id: schema.categories.id })
-        .from(schema.categories)
+      // Validate parent exists and belongs to user (if different from self)
+      if (data.parentId && data.parentId !== data.id) {
+        const parent = await db
+          .select({ id: schema.categories.id })
+          .from(schema.categories)
+          .where(
+            and(
+              eq(schema.categories.id, data.parentId),
+              eq(schema.categories.user_id, userId),
+            ),
+          )
+          .limit(1);
+        if (parent.length === 0) {
+          return { error: "Parent category does not exist" };
+        }
+
+        // Prevent circular references: walk up the proposed parent's ancestry
+        // and ensure we never encounter `data.id`.
+        const userCategories = await db
+          .select({
+            id: schema.categories.id,
+            parent_id: schema.categories.parent_id,
+          })
+          .from(schema.categories)
+          .where(eq(schema.categories.user_id, userId));
+        const parentMap = new Map<string, string | null>(
+          userCategories.map((c) => [c.id, c.parent_id]),
+        );
+        let cursor: string | null | undefined = data.parentId;
+        const visited = new Set<string>();
+        while (cursor) {
+          if (cursor === data.id) {
+            return {
+              error:
+                "Cannot set parent: would create a circular category reference",
+            };
+          }
+          if (visited.has(cursor)) break;
+          visited.add(cursor);
+          cursor = parentMap.get(cursor) ?? null;
+        }
+      }
+
+      await db
+        .update(schema.categories)
+        .set({
+          name: data.name,
+          parent_id: data.parentId || null,
+          color: data.color,
+        })
         .where(
           and(
-            eq(schema.categories.id, data.parentId),
+            eq(schema.categories.id, data.id),
             eq(schema.categories.user_id, userId),
           ),
-        )
-        .limit(1);
-      if (parent.length === 0) {
-        return { error: "Parent category does not exist" };
-      }
+        );
 
-      // Prevent circular references: walk up the proposed parent's ancestry
-      // and ensure we never encounter `data.id`.
-      const userCategories = await db
-        .select({
-          id: schema.categories.id,
-          parent_id: schema.categories.parent_id,
-        })
-        .from(schema.categories)
-        .where(eq(schema.categories.user_id, userId));
-      const parentMap = new Map<string, string | null>(
-        userCategories.map((c) => [c.id, c.parent_id]),
-      );
-      let cursor: string | null | undefined = data.parentId;
-      const visited = new Set<string>();
-      while (cursor) {
-        if (cursor === data.id) {
-          return {
-            error:
-              "Cannot set parent: would create a circular category reference",
-          };
-        }
-        if (visited.has(cursor)) break;
-        visited.add(cursor);
-        cursor = parentMap.get(cursor) ?? null;
-      }
+      return { success: true };
+    } finally {
+      await reconcileBudgets(userId);
     }
-
-    await db
-      .update(schema.categories)
-      .set({
-        name: data.name,
-        parent_id: data.parentId || null,
-        color: data.color,
-      })
-      .where(
-        and(
-          eq(schema.categories.id, data.id),
-          eq(schema.categories.user_id, userId),
-        ),
-      );
-
-    return { success: true };
   });
 
 export const deleteCategory = createServerFn({ method: "POST" })
   .inputValidator(deleteCategorySchema)
-  .handler(async ({ data }) => {
-    const userId = await requireUserId();
-
-    // Collect all descendant category IDs (children, grandchildren, etc.)
-    const allDescendantIds: string[] = [];
-
-    async function collectChildren(parentId: string): Promise<void> {
-      const children = await db
-        .select({ id: schema.categories.id })
-        .from(schema.categories)
-        .where(
-          and(
-            eq(schema.categories.parent_id, parentId),
-            eq(schema.categories.user_id, userId),
-          ),
-        );
-      for (const child of children) {
-        allDescendantIds.push(child.id);
-        await collectChildren(child.id);
-      }
-    }
-
-    await collectChildren(data.id);
-
-    // All category IDs that will be deleted (descendants + target)
-    const allIdsToDelete = [...allDescendantIds, data.id];
-
-    if (allIdsToDelete.length === 0) {
-      return { error: "Category not found" };
-    }
-
-    if (data.reassignToCategoryId) {
-      if (data.reassignToCategoryId === data.id) {
-        return {
-          error: "Cannot reassign transactions to the category being deleted",
-        };
-      }
-      const target = await db
-        .select({ id: schema.categories.id })
-        .from(schema.categories)
-        .where(
-          and(
-            eq(schema.categories.id, data.reassignToCategoryId),
-            eq(schema.categories.user_id, userId),
-          ),
-        )
-        .limit(1);
-      if (target.length === 0) {
-        return { error: "Reassignment target category does not exist" };
-      }
-
-      // Reassign transactions from deleted categories to the target
-      await db
-        .update(schema.transactions)
-        .set({ category_id: data.reassignToCategoryId })
-        .where(
-          and(
-            inArray(schema.transactions.category_id, allIdsToDelete),
-            eq(schema.transactions.user_id, userId),
-          ),
-        );
-    } else {
-      // Reset category_id on transactions that reference any of these categories
-      await db
-        .update(schema.transactions)
-        .set({ category_id: null })
-        .where(
-          and(
-            inArray(schema.transactions.category_id, allIdsToDelete),
-            eq(schema.transactions.user_id, userId),
-          ),
-        );
-    }
-
-    // Reset category_id on receipt_items that reference any of these categories
-    await db
-      .update(schema.receipt_items)
-      .set({ category_id: null })
-      .where(inArray(schema.receipt_items.category_id, allIdsToDelete));
-
-    // Delete categorization_rules that reference any of these categories
-    await db
-      .delete(schema.categorization_rules)
-      .where(inArray(schema.categorization_rules.category_id, allIdsToDelete));
-
-    // Delete all descendant categories first, then the target
-    await db
-      .delete(schema.categories)
-      .where(inArray(schema.categories.id, allIdsToDelete));
-
-    return { success: true };
-  });
+  .handler(async ({ data }) => deleteCategoryForUser(await requireUserId(), data));

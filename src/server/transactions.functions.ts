@@ -1,3 +1,4 @@
+import { reconcileBudgets } from "#/server/budget-alerts.server";
 import { createServerFn } from "@tanstack/react-start";
 import { eq, and, asc, desc, count, gte, lte, ilike, isNull, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -276,146 +277,158 @@ export const createTransaction = createServerFn({ method: "POST" })
   .inputValidator(createTransactionSchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    // Validate account exists and belongs to user
-    if (!(await ownedEntityExists("account", userId, data.accountId))) {
-      return { error: "Account does not exist" };
+      // Validate account exists and belongs to user
+      if (!(await ownedEntityExists("account", userId, data.accountId))) {
+        return { error: "Account does not exist" };
+      }
+
+      // Validate category exists and belongs to user (if provided)
+      if (
+        data.categoryId &&
+        !(await ownedEntityExists("category", userId, data.categoryId))
+      ) {
+        return { error: "Category does not exist" };
+      }
+
+      const id = crypto.randomUUID();
+      await db.insert(schema.transactions).values({
+        id,
+        user_id: userId,
+        account_id: data.accountId,
+        date: data.date,
+        amount_minor: data.amountMinor,
+        description: data.description || null,
+        category_id: data.categoryId || null,
+        source: data.source,
+        source_ref: data.sourceRef || null,
+      });
+
+      return {
+        id,
+        account_id: data.accountId,
+        date: data.date,
+        amount_minor: data.amountMinor,
+        description: data.description || null,
+        category_id: data.categoryId || null,
+        source: data.source,
+        source_ref: data.sourceRef || null,
+      };
+    } finally {
+      await reconcileBudgets(userId);
     }
-
-    // Validate category exists and belongs to user (if provided)
-    if (
-      data.categoryId &&
-      !(await ownedEntityExists("category", userId, data.categoryId))
-    ) {
-      return { error: "Category does not exist" };
-    }
-
-    const id = crypto.randomUUID();
-    await db.insert(schema.transactions).values({
-      id,
-      user_id: userId,
-      account_id: data.accountId,
-      date: data.date,
-      amount_minor: data.amountMinor,
-      description: data.description || null,
-      category_id: data.categoryId || null,
-      source: data.source,
-      source_ref: data.sourceRef || null,
-    });
-
-    return {
-      id,
-      account_id: data.accountId,
-      date: data.date,
-      amount_minor: data.amountMinor,
-      description: data.description || null,
-      category_id: data.categoryId || null,
-      source: data.source,
-      source_ref: data.sourceRef || null,
-    };
   });
 
 export const updateTransaction = createServerFn({ method: "POST" })
   .inputValidator(updateTransactionSchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    // Check transaction exists and belongs to user
-    if (!(await ownedEntityExists("transaction", userId, data.id))) {
-      return { error: "Transaction not found" };
-    }
+      // Check transaction exists and belongs to user
+      if (!(await ownedEntityExists("transaction", userId, data.id))) {
+        return { error: "Transaction not found" };
+      }
 
-    // Validate account exists and belongs to user (if changing)
-    if (
-      data.accountId &&
-      !(await ownedEntityExists("account", userId, data.accountId))
-    ) {
-      return { error: "Account does not exist" };
-    }
+      // Validate account exists and belongs to user (if changing)
+      if (
+        data.accountId &&
+        !(await ownedEntityExists("account", userId, data.accountId))
+      ) {
+        return { error: "Account does not exist" };
+      }
 
-    // Validate category exists and belongs to user (if changing to a non-null value)
-    if (
-      data.categoryId &&
-      !(await ownedEntityExists("category", userId, data.categoryId))
-    ) {
-      return { error: "Category does not exist" };
-    }
+      // Validate category exists and belongs to user (if changing to a non-null value)
+      if (
+        data.categoryId &&
+        !(await ownedEntityExists("category", userId, data.categoryId))
+      ) {
+        return { error: "Category does not exist" };
+      }
 
-    const updateData: Record<string, unknown> = {};
+      const updateData: Record<string, unknown> = {};
 
-    if (data.accountId !== undefined) {
-      updateData.account_id = data.accountId;
-    }
-    if (data.date !== undefined) {
-      updateData.date = data.date;
-    }
-    if (data.amountMinor !== undefined) {
-      updateData.amount_minor = data.amountMinor;
-    }
-    if (data.description !== undefined) {
-      updateData.description = data.description || null;
-    }
-    if (data.categoryId !== undefined) {
-      updateData.category_id = data.categoryId || null;
-    }
-    if (data.source !== undefined) {
-      updateData.source = data.source;
-    }
-    if (data.sourceRef !== undefined) {
-      updateData.source_ref = data.sourceRef || null;
-    }
+      if (data.accountId !== undefined) {
+        updateData.account_id = data.accountId;
+      }
+      if (data.date !== undefined) {
+        updateData.date = data.date;
+      }
+      if (data.amountMinor !== undefined) {
+        updateData.amount_minor = data.amountMinor;
+      }
+      if (data.description !== undefined) {
+        updateData.description = data.description || null;
+      }
+      if (data.categoryId !== undefined) {
+        updateData.category_id = data.categoryId || null;
+      }
+      if (data.source !== undefined) {
+        updateData.source = data.source;
+      }
+      if (data.sourceRef !== undefined) {
+        updateData.source_ref = data.sourceRef || null;
+      }
 
-    if (Object.keys(updateData).length === 0) {
+      if (Object.keys(updateData).length === 0) {
+        return { success: true };
+      }
+
+      await db
+        .update(schema.transactions)
+        .set(updateData)
+        .where(
+          and(
+            eq(schema.transactions.id, data.id),
+            eq(schema.transactions.user_id, userId),
+          ),
+        );
+
       return { success: true };
+    } finally {
+      await reconcileBudgets(userId);
     }
-
-    await db
-      .update(schema.transactions)
-      .set(updateData)
-      .where(
-        and(
-          eq(schema.transactions.id, data.id),
-          eq(schema.transactions.user_id, userId),
-        ),
-      );
-
-    return { success: true };
   });
 
 export const deleteTransaction = createServerFn({ method: "POST" })
   .inputValidator(deleteTransactionSchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    // Check transaction exists and belongs to user
-    if (!(await ownedEntityExists("transaction", userId, data.id))) {
-      return { error: "Transaction not found" };
-    }
+      // Check transaction exists and belongs to user
+      if (!(await ownedEntityExists("transaction", userId, data.id))) {
+        return { error: "Transaction not found" };
+      }
 
-    // Find receipts for this transaction, then delete their items, then receipts
-    const associatedReceipts = await db
-      .select({ id: schema.receipts.id })
-      .from(schema.receipts)
-      .where(eq(schema.receipts.transaction_id, data.id));
+      // Find receipts for this transaction, then delete their items, then receipts
+      const associatedReceipts = await db
+        .select({ id: schema.receipts.id })
+        .from(schema.receipts)
+        .where(eq(schema.receipts.transaction_id, data.id));
 
-    for (const r of associatedReceipts) {
+      for (const r of associatedReceipts) {
+        await db
+          .delete(schema.receipt_items)
+          .where(eq(schema.receipt_items.receipt_id, r.id));
+      }
+
       await db
-        .delete(schema.receipt_items)
-        .where(eq(schema.receipt_items.receipt_id, r.id));
+        .delete(schema.receipts)
+        .where(eq(schema.receipts.transaction_id, data.id));
+
+      await db
+        .delete(schema.transactions)
+        .where(
+          and(
+            eq(schema.transactions.id, data.id),
+            eq(schema.transactions.user_id, userId),
+          ),
+        );
+
+      return { success: true };
+    } finally {
+      await reconcileBudgets(userId);
     }
-
-    await db
-      .delete(schema.receipts)
-      .where(eq(schema.receipts.transaction_id, data.id));
-
-    await db
-      .delete(schema.transactions)
-      .where(
-        and(
-          eq(schema.transactions.id, data.id),
-          eq(schema.transactions.user_id, userId),
-        ),
-      );
-
-    return { success: true };
   });

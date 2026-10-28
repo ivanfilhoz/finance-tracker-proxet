@@ -1,3 +1,4 @@
+import { reconcileBudgets } from "#/server/budget-alerts.server";
 import { createServerFn } from "@tanstack/react-start";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -626,6 +627,7 @@ export const confirmImport = createServerFn({ method: "POST" })
       yield* streamConfirmImport(data, userId, requestId);
     } finally {
       abortControllers.delete(String(requestId));
+      await reconcileBudgets(userId);
     }
   });
 
@@ -1172,64 +1174,68 @@ export const deleteImportBatch = createServerFn({ method: "POST" })
   .inputValidator(deleteImportBatchSchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    const batch = await db
-      .select({ id: schema.import_batches.id })
-      .from(schema.import_batches)
-      .where(
-        and(
-          eq(schema.import_batches.id, data.batchId),
-          eq(schema.import_batches.user_id, userId),
-        ),
-      )
-      .limit(1);
-    if (batch.length === 0) {
-      return { error: "Import batch not found" };
-    }
-
-    const batchTransactions = await db
-      .select({ id: schema.transactions.id })
-      .from(schema.transactions)
-      .where(
-        and(
-          eq(schema.transactions.user_id, userId),
-          eq(schema.transactions.import_batch_id, data.batchId),
-        ),
-      );
-    const transactionIds = batchTransactions.map((t) => t.id);
-
-    if (transactionIds.length > 0) {
-      const associatedReceipts = await db
-        .select({ id: schema.receipts.id })
-        .from(schema.receipts)
-        .where(inArray(schema.receipts.transaction_id, transactionIds));
-      const receiptIds = associatedReceipts.map((r) => r.id);
-      if (receiptIds.length > 0) {
-        await db
-          .delete(schema.receipt_items)
-          .where(inArray(schema.receipt_items.receipt_id, receiptIds));
-        await db
-          .delete(schema.receipts)
-          .where(inArray(schema.receipts.id, receiptIds));
+      const batch = await db
+        .select({ id: schema.import_batches.id })
+        .from(schema.import_batches)
+        .where(
+          and(
+            eq(schema.import_batches.id, data.batchId),
+            eq(schema.import_batches.user_id, userId),
+          ),
+        )
+        .limit(1);
+      if (batch.length === 0) {
+        return { error: "Import batch not found" };
       }
-      await db
-        .delete(schema.transactions)
+
+      const batchTransactions = await db
+        .select({ id: schema.transactions.id })
+        .from(schema.transactions)
         .where(
           and(
             eq(schema.transactions.user_id, userId),
             eq(schema.transactions.import_batch_id, data.batchId),
           ),
         );
+      const transactionIds = batchTransactions.map((t) => t.id);
+
+      if (transactionIds.length > 0) {
+        const associatedReceipts = await db
+          .select({ id: schema.receipts.id })
+          .from(schema.receipts)
+          .where(inArray(schema.receipts.transaction_id, transactionIds));
+        const receiptIds = associatedReceipts.map((r) => r.id);
+        if (receiptIds.length > 0) {
+          await db
+            .delete(schema.receipt_items)
+            .where(inArray(schema.receipt_items.receipt_id, receiptIds));
+          await db
+            .delete(schema.receipts)
+            .where(inArray(schema.receipts.id, receiptIds));
+        }
+        await db
+          .delete(schema.transactions)
+          .where(
+            and(
+              eq(schema.transactions.user_id, userId),
+              eq(schema.transactions.import_batch_id, data.batchId),
+            ),
+          );
+      }
+
+      await db
+        .delete(schema.import_batches)
+        .where(
+          and(
+            eq(schema.import_batches.id, data.batchId),
+            eq(schema.import_batches.user_id, userId),
+          ),
+        );
+
+      return { success: true, deletedTransactions: transactionIds.length };
+    } finally {
+      await reconcileBudgets(userId);
     }
-
-    await db
-      .delete(schema.import_batches)
-      .where(
-        and(
-          eq(schema.import_batches.id, data.batchId),
-          eq(schema.import_batches.user_id, userId),
-        ),
-      );
-
-    return { success: true, deletedTransactions: transactionIds.length };
   });

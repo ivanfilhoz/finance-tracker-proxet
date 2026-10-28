@@ -2,6 +2,8 @@ import { test, expect, type Page } from "./fixtures";
 
 
 test.describe("Transaction List Page", () => {
+  // DATE values must render unchanged west of UTC as well as on UTC CI hosts.
+  test.use({ timezoneId: "America/Bahia" });
   test.beforeEach(async ({ page, signedInUser: _signedInUser }) => {
     // The account-filter test creates 2 extra accounts (3 with the seeded
     // Main), above the free plan's limit — run as a Pro user. Free-limit

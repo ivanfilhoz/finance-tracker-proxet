@@ -1,3 +1,4 @@
+import { reconcileBudgets } from "#/server/budget-alerts.server";
 import { createServerFn } from "@tanstack/react-start";
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -365,215 +366,219 @@ export const saveReceiptAndLink = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    // Validate account exists and belongs to user
-    const account = await db
-      .select({ id: schema.accounts.id })
-      .from(schema.accounts)
-      .where(
-        and(
-          eq(schema.accounts.id, data.accountId),
-          eq(schema.accounts.user_id, userId),
-        ),
-      )
-      .limit(1);
-
-    if (account.length === 0) {
-      return { error: "Account does not exist" };
-    }
-
-    // Validate suggested_parent_category if provided
-    let parentId: string | null = null;
-    if (data.suggested_parent_category) {
-      const category = await db
-        .select({ id: schema.categories.id })
-        .from(schema.categories)
+      // Validate account exists and belongs to user
+      const account = await db
+        .select({ id: schema.accounts.id })
+        .from(schema.accounts)
         .where(
           and(
-            eq(schema.categories.name, data.suggested_parent_category),
-            eq(schema.categories.user_id, userId),
-          ),
-        )
-        .limit(1);
-      if (category.length > 0) {
-        parentId = category[0].id;
-      }
-    }
-
-    // Create receipt row
-    const receiptId = crypto.randomUUID();
-
-    // Build raw response for storage
-    const rawResponse: ReceiptExtraction = {
-      store_name: data.store_name,
-      date: data.date,
-      items: data.items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity ?? 1,
-        unit_price_minor: item.unit_price_minor,
-        total_price_minor: item.total_price_minor,
-        suggested_category: "",
-      })),
-      total_minor: data.totalMinor,
-      suggested_parent_category: data.suggested_parent_category || "",
-    };
-
-    await db.insert(schema.receipts).values({
-      id: receiptId,
-      user_id: userId,
-      image_path: data.imagePaths[0] || null,
-      ai_raw_response: JSON.stringify(rawResponse),
-      transaction_id: data.existingTransactionId || null,
-    });
-
-    // Create receipt items
-    const receiptItems: Array<{
-      id: string;
-      name: string;
-      quantity: number | null;
-      unit_price_minor: number | null;
-      total_price_minor: number;
-      category_id: string | null;
-    }> = [];
-
-    for (const item of data.items) {
-      const itemId = crypto.randomUUID();
-      const categoryId = item.category_id || parentId || null;
-      await db.insert(schema.receipt_items).values({
-        id: itemId,
-        receipt_id: receiptId,
-        name: item.name,
-        quantity: item.quantity ?? 1,
-        unit_price_minor: item.unit_price_minor,
-        total_price_minor: item.total_price_minor,
-        category_id: categoryId,
-      });
-      receiptItems.push({
-        id: itemId,
-        name: item.name,
-        quantity: item.quantity ?? 1,
-        unit_price_minor: item.unit_price_minor,
-        total_price_minor: item.total_price_minor,
-        category_id: categoryId,
-      });
-    }
-
-    let transaction = null;
-
-    if (data.existingTransactionId) {
-      // Link receipt to existing transaction — do NOT modify transaction's category_id
-      await db
-        .update(schema.receipts)
-        .set({ transaction_id: data.existingTransactionId })
-        .where(eq(schema.receipts.id, receiptId));
-
-      transaction = await db
-        .select({
-          id: schema.transactions.id,
-          account_id: schema.transactions.account_id,
-          date: schema.transactions.date,
-          amount_minor: schema.transactions.amount_minor,
-          description: schema.transactions.description,
-          category_id: schema.transactions.category_id,
-          source: schema.transactions.source,
-          source_ref: schema.transactions.source_ref,
-          created_at: schema.transactions.created_at,
-          account_name: schema.accounts.name,
-          account_currency: schema.accounts.currency,
-          category_name: schema.categories.name,
-          category_color: schema.categories.color,
-        })
-        .from(schema.transactions)
-        .leftJoin(
-          schema.accounts,
-          eq(schema.transactions.account_id, schema.accounts.id),
-        )
-        .leftJoin(
-          schema.categories,
-          eq(schema.transactions.category_id, schema.categories.id),
-        )
-        .where(
-          and(
-            eq(schema.transactions.id, data.existingTransactionId),
-            eq(schema.transactions.user_id, userId),
+            eq(schema.accounts.id, data.accountId),
+            eq(schema.accounts.user_id, userId),
           ),
         )
         .limit(1);
 
-      if (transaction.length === 0) {
-        return { error: "Transaction not found" };
+      if (account.length === 0) {
+        return { error: "Account does not exist" };
       }
-      transaction = transaction[0];
-    } else {
-      // Create new transaction
-      const txnId = crypto.randomUUID();
 
-      // Generate source_ref from date, store_name, amount
-      const normalizedStore = data.store_name
-        .toUpperCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim();
-      const sourceRef = `${data.date}-${normalizedStore}-${formatMinor(data.totalMinor)}`;
+      // Validate suggested_parent_category if provided
+      let parentId: string | null = null;
+      if (data.suggested_parent_category) {
+        const category = await db
+          .select({ id: schema.categories.id })
+          .from(schema.categories)
+          .where(
+            and(
+              eq(schema.categories.name, data.suggested_parent_category),
+              eq(schema.categories.user_id, userId),
+            ),
+          )
+          .limit(1);
+        if (category.length > 0) {
+          parentId = category[0].id;
+        }
+      }
 
-      await db.insert(schema.transactions).values({
-        id: txnId,
-        user_id: userId,
-        account_id: data.accountId,
+      // Create receipt row
+      const receiptId = crypto.randomUUID();
+
+      // Build raw response for storage
+      const rawResponse: ReceiptExtraction = {
+        store_name: data.store_name,
         date: data.date,
-        amount_minor: data.totalMinor,
-        description: data.store_name || null,
-        category_id: parentId,
-        source: "receipt",
-        source_ref: sourceRef,
+        items: data.items.map((item) => ({
+          name: item.name,
+          quantity: item.quantity ?? 1,
+          unit_price_minor: item.unit_price_minor,
+          total_price_minor: item.total_price_minor,
+          suggested_category: "",
+        })),
+        total_minor: data.totalMinor,
+        suggested_parent_category: data.suggested_parent_category || "",
+      };
+
+      await db.insert(schema.receipts).values({
+        id: receiptId,
+        user_id: userId,
+        image_path: data.imagePaths[0] || null,
+        ai_raw_response: JSON.stringify(rawResponse),
+        transaction_id: data.existingTransactionId || null,
       });
 
-      // Link receipt to new transaction
-      await db
-        .update(schema.receipts)
-        .set({ transaction_id: txnId })
-        .where(eq(schema.receipts.id, receiptId));
+      // Create receipt items
+      const receiptItems: Array<{
+        id: string;
+        name: string;
+        quantity: number | null;
+        unit_price_minor: number | null;
+        total_price_minor: number;
+        category_id: string | null;
+      }> = [];
 
-      transaction = await db
-        .select({
-          id: schema.transactions.id,
-          account_id: schema.transactions.account_id,
-          date: schema.transactions.date,
-          amount_minor: schema.transactions.amount_minor,
-          description: schema.transactions.description,
-          category_id: schema.transactions.category_id,
-          source: schema.transactions.source,
-          source_ref: schema.transactions.source_ref,
-          created_at: schema.transactions.created_at,
-          account_name: schema.accounts.name,
-          account_currency: schema.accounts.currency,
-          category_name: schema.categories.name,
-          category_color: schema.categories.color,
-        })
-        .from(schema.transactions)
-        .leftJoin(
-          schema.accounts,
-          eq(schema.transactions.account_id, schema.accounts.id),
-        )
-        .leftJoin(
-          schema.categories,
-          eq(schema.transactions.category_id, schema.categories.id),
-        )
-        .where(eq(schema.transactions.id, txnId))
-        .limit(1);
-
-      if (transaction.length === 0) {
-        return { error: "Transaction creation failed" };
+      for (const item of data.items) {
+        const itemId = crypto.randomUUID();
+        const categoryId = item.category_id || parentId || null;
+        await db.insert(schema.receipt_items).values({
+          id: itemId,
+          receipt_id: receiptId,
+          name: item.name,
+          quantity: item.quantity ?? 1,
+          unit_price_minor: item.unit_price_minor,
+          total_price_minor: item.total_price_minor,
+          category_id: categoryId,
+        });
+        receiptItems.push({
+          id: itemId,
+          name: item.name,
+          quantity: item.quantity ?? 1,
+          unit_price_minor: item.unit_price_minor,
+          total_price_minor: item.total_price_minor,
+          category_id: categoryId,
+        });
       }
-      transaction = transaction[0];
-    }
 
-    return {
-      success: true,
-      receipt_id: receiptId,
-      items: receiptItems,
-      transaction,
-    };
+      let transaction = null;
+
+      if (data.existingTransactionId) {
+        // Link receipt to existing transaction — do NOT modify transaction's category_id
+        await db
+          .update(schema.receipts)
+          .set({ transaction_id: data.existingTransactionId })
+          .where(eq(schema.receipts.id, receiptId));
+
+        transaction = await db
+          .select({
+            id: schema.transactions.id,
+            account_id: schema.transactions.account_id,
+            date: schema.transactions.date,
+            amount_minor: schema.transactions.amount_minor,
+            description: schema.transactions.description,
+            category_id: schema.transactions.category_id,
+            source: schema.transactions.source,
+            source_ref: schema.transactions.source_ref,
+            created_at: schema.transactions.created_at,
+            account_name: schema.accounts.name,
+            account_currency: schema.accounts.currency,
+            category_name: schema.categories.name,
+            category_color: schema.categories.color,
+          })
+          .from(schema.transactions)
+          .leftJoin(
+            schema.accounts,
+            eq(schema.transactions.account_id, schema.accounts.id),
+          )
+          .leftJoin(
+            schema.categories,
+            eq(schema.transactions.category_id, schema.categories.id),
+          )
+          .where(
+            and(
+              eq(schema.transactions.id, data.existingTransactionId),
+              eq(schema.transactions.user_id, userId),
+            ),
+          )
+          .limit(1);
+
+        if (transaction.length === 0) {
+          return { error: "Transaction not found" };
+        }
+        transaction = transaction[0];
+      } else {
+        // Create new transaction
+        const txnId = crypto.randomUUID();
+
+        // Generate source_ref from date, store_name, amount
+        const normalizedStore = data.store_name
+          .toUpperCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .trim();
+        const sourceRef = `${data.date}-${normalizedStore}-${formatMinor(data.totalMinor)}`;
+
+        await db.insert(schema.transactions).values({
+          id: txnId,
+          user_id: userId,
+          account_id: data.accountId,
+          date: data.date,
+          amount_minor: data.totalMinor,
+          description: data.store_name || null,
+          category_id: parentId,
+          source: "receipt",
+          source_ref: sourceRef,
+        });
+
+        // Link receipt to new transaction
+        await db
+          .update(schema.receipts)
+          .set({ transaction_id: txnId })
+          .where(eq(schema.receipts.id, receiptId));
+
+        transaction = await db
+          .select({
+            id: schema.transactions.id,
+            account_id: schema.transactions.account_id,
+            date: schema.transactions.date,
+            amount_minor: schema.transactions.amount_minor,
+            description: schema.transactions.description,
+            category_id: schema.transactions.category_id,
+            source: schema.transactions.source,
+            source_ref: schema.transactions.source_ref,
+            created_at: schema.transactions.created_at,
+            account_name: schema.accounts.name,
+            account_currency: schema.accounts.currency,
+            category_name: schema.categories.name,
+            category_color: schema.categories.color,
+          })
+          .from(schema.transactions)
+          .leftJoin(
+            schema.accounts,
+            eq(schema.transactions.account_id, schema.accounts.id),
+          )
+          .leftJoin(
+            schema.categories,
+            eq(schema.transactions.category_id, schema.categories.id),
+          )
+          .where(eq(schema.transactions.id, txnId))
+          .limit(1);
+
+        if (transaction.length === 0) {
+          return { error: "Transaction creation failed" };
+        }
+        transaction = transaction[0];
+      }
+
+      return {
+        success: true,
+        receipt_id: receiptId,
+        items: receiptItems,
+        transaction,
+      };
+    } finally {
+      await reconcileBudgets(userId);
+    }
   });
 
 export const suggestTransactionForReceipt = createServerFn({ method: "GET" })

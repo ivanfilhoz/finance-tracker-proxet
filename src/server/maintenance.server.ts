@@ -1,3 +1,4 @@
+import { ensureBudgetLoop } from "#/server/budget-sweep.server";
 import { runComplianceSweep } from "#/server/compliance.server";
 import { env } from "#/server/env";
 import { getLogger } from "#/server/logger";
@@ -16,6 +17,7 @@ export function ensureMaintenanceLoop(): void {
   if (armed) return;
   armed = true;
   if (env.isTestMode) return;
+  ensureBudgetLoop();
 
   const sweep = () =>
     runComplianceSweep().catch((error) =>

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
@@ -9,6 +10,8 @@ import {
   doublePrecision,
   serial,
   index,
+  uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 
 export const auth_token_type = pgEnum("auth_token_type", [
@@ -282,3 +285,31 @@ export const todos = pgTable("todos", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .defaultNow(),
 });
+
+export const budgets = pgTable("budgets", {
+  id: text("id").primaryKey(),
+  user_id: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  category_id: text("category_id").notNull().references(() => categories.id, { onDelete: "cascade" }),
+  currency: text("currency").notNull(),
+  limit_minor: integer("limit_minor").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("budgets_user_category_unique").on(t.user_id, t.category_id),
+  check("budget_positive_limit", sql`${t.limit_minor} > 0`),
+]);
+
+export const budget_notifications = pgTable("budget_notifications", {
+  id: text("id").primaryKey(),
+  budget_id: text("budget_id").notNull().references(() => budgets.id, { onDelete: "cascade" }),
+  user_id: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  period_start: date("period_start", { mode: "string" }).notNull(),
+  state: text("state").notNull().default("attempted"),
+  attempted_at: timestamp("attempted_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  sent_at: timestamp("sent_at", { withTimezone: true, mode: "date" }),
+}, (t) => [
+  uniqueIndex("budget_notification_period_unique").on(t.budget_id, t.period_start),
+  index("budget_notification_user_idx").on(t.user_id),
+  check("budget_notification_month_start", sql`extract(day from ${t.period_start}) = 1`),
+  check("budget_notification_state", sql`${t.state} in ('attempted', 'sent', 'failed')`),
+]);

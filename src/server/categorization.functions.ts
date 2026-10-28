@@ -1,3 +1,4 @@
+import { reconcileBudgets } from "#/server/budget-alerts.server";
 import { createServerFn } from "@tanstack/react-start";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -241,58 +242,62 @@ export const applyRuleToExisting = createServerFn({ method: "POST" })
   .inputValidator(applyRuleSchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
-    const ruleRows = await db
-      .select({
-        id: schema.categorization_rules.id,
-        pattern: schema.categorization_rules.pattern,
-        match_type: schema.categorization_rules.match_type,
-        category_id: schema.categorization_rules.category_id,
-        priority: schema.categorization_rules.priority,
-      })
-      .from(schema.categorization_rules)
-      .where(
-        and(
-          eq(schema.categorization_rules.id, data.ruleId),
-          eq(schema.categorization_rules.user_id, userId),
-        ),
-      )
-      .limit(1);
-    if (ruleRows.length === 0) {
-      return { error: "Rule not found" };
-    }
-    const rule = ruleRows[0];
-
-    const conditions = [eq(schema.transactions.user_id, userId)];
-    if (data.mode === "only_uncategorized") {
-      conditions.push(isNull(schema.transactions.category_id));
-    }
-
-    const candidates = await db
-      .select({
-        id: schema.transactions.id,
-        description: schema.transactions.description,
-        category_id: schema.transactions.category_id,
-      })
-      .from(schema.transactions)
-      .where(and(...conditions));
-
-    let updated = 0;
-    for (const t of candidates) {
-      const matched = matchRule(t.description ?? "", [rule]);
-      if (!matched) continue;
-      if (t.category_id === rule.category_id) continue;
-      await db
-        .update(schema.transactions)
-        .set({ category_id: rule.category_id })
+    try {
+      const ruleRows = await db
+        .select({
+          id: schema.categorization_rules.id,
+          pattern: schema.categorization_rules.pattern,
+          match_type: schema.categorization_rules.match_type,
+          category_id: schema.categorization_rules.category_id,
+          priority: schema.categorization_rules.priority,
+        })
+        .from(schema.categorization_rules)
         .where(
           and(
-            eq(schema.transactions.id, t.id),
-            eq(schema.transactions.user_id, userId),
+            eq(schema.categorization_rules.id, data.ruleId),
+            eq(schema.categorization_rules.user_id, userId),
           ),
-        );
-      updated++;
+        )
+        .limit(1);
+      if (ruleRows.length === 0) {
+        return { error: "Rule not found" };
+      }
+      const rule = ruleRows[0];
+
+      const conditions = [eq(schema.transactions.user_id, userId)];
+      if (data.mode === "only_uncategorized") {
+        conditions.push(isNull(schema.transactions.category_id));
+      }
+
+      const candidates = await db
+        .select({
+          id: schema.transactions.id,
+          description: schema.transactions.description,
+          category_id: schema.transactions.category_id,
+        })
+        .from(schema.transactions)
+        .where(and(...conditions));
+
+      let updated = 0;
+      for (const t of candidates) {
+        const matched = matchRule(t.description ?? "", [rule]);
+        if (!matched) continue;
+        if (t.category_id === rule.category_id) continue;
+        await db
+          .update(schema.transactions)
+          .set({ category_id: rule.category_id })
+          .where(
+            and(
+              eq(schema.transactions.id, t.id),
+              eq(schema.transactions.user_id, userId),
+            ),
+          );
+        updated++;
+      }
+      return { success: true, updated };
+    } finally {
+      await reconcileBudgets(userId);
     }
-    return { success: true, updated };
   });
 
 export const reorderCategorizationRules = createServerFn({ method: "POST" })
@@ -336,161 +341,165 @@ export const reCategorizeTransactions = createServerFn({ method: "POST" })
   .inputValidator(reCategorizeSchema)
   .handler(async ({ data }) => {
     const userId = await requireUserId();
+    try {
 
-    const conditions = [eq(schema.transactions.user_id, userId)];
-    if (data.mode === "only_uncategorized") {
-      conditions.push(isNull(schema.transactions.category_id));
-    }
-
-    const candidates = await db
-      .select({
-        id: schema.transactions.id,
-        description: schema.transactions.description,
-        category_id: schema.transactions.category_id,
-      })
-      .from(schema.transactions)
-      .where(and(...conditions));
-
-    if (candidates.length === 0) {
-      return { updated: 0, aiCategorized: 0, skipped: 0 };
-    }
-
-    const userRules = await db
-      .select({
-        id: schema.categorization_rules.id,
-        pattern: schema.categorization_rules.pattern,
-        match_type: schema.categorization_rules.match_type,
-        category_id: schema.categorization_rules.category_id,
-        priority: schema.categorization_rules.priority,
-      })
-      .from(schema.categorization_rules)
-      .where(eq(schema.categorization_rules.user_id, userId))
-      .orderBy(
-        asc(schema.categorization_rules.priority),
-        asc(schema.categorization_rules.created_at),
-      );
-
-    const allCategories = await db
-      .select({
-        id: schema.categories.id,
-        name: schema.categories.name,
-      })
-      .from(schema.categories)
-      .where(eq(schema.categories.user_id, userId));
-
-    // AI spend is gated on a verified email and the global daily spend cap;
-    // rule-based recategorization below is unaffected.
-    const aiAllowed =
-      data.useAi &&
-      isAIVisible() &&
-      (await isEmailVerified(userId)) &&
-      (await checkSpendCap()).allowed;
-
-    let updated = 0;
-    let aiCategorized = 0;
-    let skipped = 0;
-    const aiRulesToCreate: Array<{
-      pattern: string;
-      match_type: "substring" | "exact";
-      category_id: string;
-    }> = [];
-
-    // In-run memo by normalized description: N transactions with the same
-    // merchant string cost one AI call, not N (the rules created from AI
-    // suggestions only land after the loop, so they can't short-circuit it).
-    const aiMemo = new Map<string, string | null>();
-
-    const applyCategory = async (txnId: string, categoryId: string) => {
-      await db
-        .update(schema.transactions)
-        .set({ category_id: categoryId })
-        .where(
-          and(
-            eq(schema.transactions.id, txnId),
-            eq(schema.transactions.user_id, userId),
-          ),
-        );
-    };
-
-    for (const t of candidates) {
-      const desc = t.description ?? "";
-      const matched = matchRule(desc, userRules);
-
-      if (matched) {
-        if (t.category_id === matched.category_id) {
-          skipped++;
-        } else {
-          await db
-            .update(schema.transactions)
-            .set({ category_id: matched.category_id })
-            .where(
-              and(
-                eq(schema.transactions.id, t.id),
-                eq(schema.transactions.user_id, userId),
-              ),
-            );
-          updated++;
-        }
-        continue;
+      const conditions = [eq(schema.transactions.user_id, userId)];
+      if (data.mode === "only_uncategorized") {
+        conditions.push(isNull(schema.transactions.category_id));
       }
 
-      if (aiAllowed) {
-        const memoKey = desc.trim().toUpperCase();
-        if (aiMemo.has(memoKey)) {
-          const memoCategoryId = aiMemo.get(memoKey);
-          if (memoCategoryId) {
-            await applyCategory(t.id, memoCategoryId);
-            updated++;
-            aiCategorized++;
-          } else {
+      const candidates = await db
+        .select({
+          id: schema.transactions.id,
+          description: schema.transactions.description,
+          category_id: schema.transactions.category_id,
+        })
+        .from(schema.transactions)
+        .where(and(...conditions));
+
+      if (candidates.length === 0) {
+        return { updated: 0, aiCategorized: 0, skipped: 0 };
+      }
+
+      const userRules = await db
+        .select({
+          id: schema.categorization_rules.id,
+          pattern: schema.categorization_rules.pattern,
+          match_type: schema.categorization_rules.match_type,
+          category_id: schema.categorization_rules.category_id,
+          priority: schema.categorization_rules.priority,
+        })
+        .from(schema.categorization_rules)
+        .where(eq(schema.categorization_rules.user_id, userId))
+        .orderBy(
+          asc(schema.categorization_rules.priority),
+          asc(schema.categorization_rules.created_at),
+        );
+
+      const allCategories = await db
+        .select({
+          id: schema.categories.id,
+          name: schema.categories.name,
+        })
+        .from(schema.categories)
+        .where(eq(schema.categories.user_id, userId));
+
+      // AI spend is gated on a verified email and the global daily spend cap;
+      // rule-based recategorization below is unaffected.
+      const aiAllowed =
+        data.useAi &&
+        isAIVisible() &&
+        (await isEmailVerified(userId)) &&
+        (await checkSpendCap()).allowed;
+
+      let updated = 0;
+      let aiCategorized = 0;
+      let skipped = 0;
+      const aiRulesToCreate: Array<{
+        pattern: string;
+        match_type: "substring" | "exact";
+        category_id: string;
+      }> = [];
+
+      // In-run memo by normalized description: N transactions with the same
+      // merchant string cost one AI call, not N (the rules created from AI
+      // suggestions only land after the loop, so they can't short-circuit it).
+      const aiMemo = new Map<string, string | null>();
+
+      const applyCategory = async (txnId: string, categoryId: string) => {
+        await db
+          .update(schema.transactions)
+          .set({ category_id: categoryId })
+          .where(
+            and(
+              eq(schema.transactions.id, txnId),
+              eq(schema.transactions.user_id, userId),
+            ),
+          );
+      };
+
+      for (const t of candidates) {
+        const desc = t.description ?? "";
+        const matched = matchRule(desc, userRules);
+
+        if (matched) {
+          if (t.category_id === matched.category_id) {
             skipped++;
+          } else {
+            await db
+              .update(schema.transactions)
+              .set({ category_id: matched.category_id })
+              .where(
+                and(
+                  eq(schema.transactions.id, t.id),
+                  eq(schema.transactions.user_id, userId),
+                ),
+              );
+            updated++;
           }
           continue;
         }
 
-        const result = await categorizeDescription(desc, allCategories, {
-          userId,
-          kind: "categorize",
-        });
-        if (result.success) {
-          const matchedCategory = allCategories.find(
-            (c) => c.name.toLowerCase() === result.category_name.toLowerCase(),
-          );
-          if (matchedCategory) {
-            const pattern = result.pattern || desc;
-            aiRulesToCreate.push({
-              pattern,
-              match_type: result.pattern ? "substring" : "exact",
-              category_id: matchedCategory.id,
-            });
-            aiMemo.set(memoKey, matchedCategory.id);
-            await applyCategory(t.id, matchedCategory.id);
-            updated++;
-            aiCategorized++;
+        if (aiAllowed) {
+          const memoKey = desc.trim().toUpperCase();
+          if (aiMemo.has(memoKey)) {
+            const memoCategoryId = aiMemo.get(memoKey);
+            if (memoCategoryId) {
+              await applyCategory(t.id, memoCategoryId);
+              updated++;
+              aiCategorized++;
+            } else {
+              skipped++;
+            }
+            continue;
+          }
+
+          const result = await categorizeDescription(desc, allCategories, {
+            userId,
+            kind: "categorize",
+          });
+          if (result.success) {
+            const matchedCategory = allCategories.find(
+              (c) => c.name.toLowerCase() === result.category_name.toLowerCase(),
+            );
+            if (matchedCategory) {
+              const pattern = result.pattern || desc;
+              aiRulesToCreate.push({
+                pattern,
+                match_type: result.pattern ? "substring" : "exact",
+                category_id: matchedCategory.id,
+              });
+              aiMemo.set(memoKey, matchedCategory.id);
+              await applyCategory(t.id, matchedCategory.id);
+              updated++;
+              aiCategorized++;
+            } else {
+              aiMemo.set(memoKey, null);
+              skipped++;
+            }
           } else {
-            aiMemo.set(memoKey, null);
             skipped++;
           }
         } else {
           skipped++;
         }
-      } else {
-        skipped++;
       }
-    }
 
-    if (aiRulesToCreate.length > 0) {
-      const aiRulesInsert = aiRulesToCreate.map((rule) => ({
-        id: crypto.randomUUID(),
-        user_id: userId,
-        pattern: rule.pattern,
-        match_type: rule.match_type,
-        category_id: rule.category_id,
-        priority: 50,
-        source: "ai" as const,
-      }));
-      await db.insert(schema.categorization_rules).values(aiRulesInsert);
-    }
+      if (aiRulesToCreate.length > 0) {
+        const aiRulesInsert = aiRulesToCreate.map((rule) => ({
+          id: crypto.randomUUID(),
+          user_id: userId,
+          pattern: rule.pattern,
+          match_type: rule.match_type,
+          category_id: rule.category_id,
+          priority: 50,
+          source: "ai" as const,
+        }));
+        await db.insert(schema.categorization_rules).values(aiRulesInsert);
+      }
 
-    return { updated, aiCategorized, skipped };
+      return { updated, aiCategorized, skipped };
+    } finally {
+      await reconcileBudgets(userId);
+    }
   });

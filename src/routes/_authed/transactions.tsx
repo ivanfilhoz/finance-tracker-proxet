@@ -701,7 +701,7 @@ function toIsoDatetime(dtLocal: string): string {
   return dtLocal;
 }
 
-// Formats an ISO datetime for display in the transaction list.
+// SQL DATE values are calendar dates: never shift them into the browser timezone.
 // Shows "May 8, 2026 14:30" if time is non-midnight, or "May 8, 2026" if midnight.
 function formatTxDate(iso: string): string {
   if (!iso) return "";
@@ -712,12 +712,14 @@ function formatTxDate(iso: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
   if (!hasTime) return datePart;
   const timePart = d.toLocaleTimeString("en", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    timeZone: "UTC",
   });
   return `${datePart} ${timePart}`;
 }

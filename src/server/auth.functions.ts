@@ -1,3 +1,4 @@
+import { reconcileBudgets } from "#/server/budget-alerts.server";
 import { createServerFn } from "@tanstack/react-start";
 import {
   getRequestHeader,
@@ -261,6 +262,7 @@ export const verifyEmail = createServerFn({ method: "POST" })
       .update(schema.users)
       .set({ email_verified_at: new Date() })
       .where(eq(schema.users.id, userId));
+    await reconcileBudgets(userId);
     return { success: true };
   });
 

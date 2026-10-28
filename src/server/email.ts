@@ -37,24 +37,31 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
       );
       return;
     case "resend": {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.email.resendApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: env.email.from,
-          to: message.to,
-          subject: message.subject,
-          text: message.text,
-        }),
-      });
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        throw new Error(
-          `Resend API error ${response.status}: ${body.slice(0, 500)}`,
-        );
+      // Financial mutations now send budget alerts. Bound the provider request
+      // (including reading an error body) so an outage cannot hang a saved edit.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${env.email.resendApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: env.email.from,
+            to: message.to,
+            subject: message.subject,
+            text: message.text,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new Error(`Resend API error ${response.status}: ${body.slice(0, 500)}`);
+        }
+      } finally {
+        clearTimeout(timeout);
       }
       return;
     }
