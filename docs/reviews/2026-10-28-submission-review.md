@@ -35,4 +35,8 @@ Connected Chrome verified local Free and Pro fixtures, with five Pro budgets per
 
 ## Independent review
 
-A separate Grok CLI 1.0.62 read-only review was launched against a source snapshot excluding secrets, local databases and recruiting context. Its result is pending and is not represented as approval.
+A separate Grok CLI 1.0.62 read-only review was launched against a source snapshot excluding secrets, local databases and recruiting context. It reported no confirmed actionable defects in that snapshot. The reviewer did not run tests, and its reading stopped at a tool-turn limit; a continuation produced the final report. The snapshot preceded the separately reproduced user-cache fix and email deadline, so this is not an independent verification of those final changes. It noted existing receipt-sign semantics, category-deletion atomicity/cycle limitations and account-creation concurrency as baseline behavior, and confirmed the documented notification/sweep tradeoffs. Raw output remains local for the interview.
+
+## GitHub CI environment
+
+The first published CI run stopped before tests: `ubuntu-latest` selected Ubuntu 26.04, which pinned Playwright 1.59.1 does not support. CI now pins Ubuntu 24.04, supported by that installed Playwright version. The remote rerun is pending; local full-check results above remain the completed evidence.
