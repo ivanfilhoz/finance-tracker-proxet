@@ -67,7 +67,10 @@ test.describe("Categories CRUD", () => {
     await page.getByRole("button", { name: "Save Changes" }).click();
 
     await expect(page.getByRole("heading", { name: "Edit" })).toBeHidden();
-    await expect(page.getByText("Edit Me Updated")).toBeVisible();
+    // The closing dialog may still contain a matching parent-category option.
+    await expect(
+      page.getByTestId("category-row").filter({ hasText: "Edit Me Updated" }),
+    ).toBeVisible();
   });
 
   test("changes a category's parent", async ({ page }) => {

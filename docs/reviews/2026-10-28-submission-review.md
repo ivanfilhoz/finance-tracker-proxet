@@ -39,4 +39,4 @@ A separate Grok CLI 1.0.62 read-only review was launched against a source snapsh
 
 ## GitHub CI environment
 
-The first published CI run stopped before tests: `ubuntu-latest` selected Ubuntu 26.04, which pinned Playwright 1.59.1 does not support. CI now pins Ubuntu 24.04, supported by that installed Playwright version. The remote rerun is pending; local full-check results above remain the completed evidence.
+The first published CI run stopped before tests: `ubuntu-latest` selected Ubuntu 26.04, which pinned Playwright 1.59.1 does not support. CI now pins Ubuntu 24.04, supported by that installed Playwright version. The next remote run passed typecheck/lint/unit tests and 164 E2E tests, but exposed a category-edit test selector matching both the updated row and a closing-dialog option. That assertion now scopes to the category row; application code is unchanged. The corrected full local check passed again: typecheck, lint, 212 unit tests and 165 E2E tests, without retries. A follow-up push reruns GitHub CI; its result is not claimed here.
