@@ -40,3 +40,13 @@ A separate Grok CLI 1.0.62 read-only review was launched against a source snapsh
 ## GitHub CI environment
 
 The first published CI run stopped before tests: `ubuntu-latest` selected Ubuntu 26.04, which pinned Playwright 1.59.1 does not support. CI now pins Ubuntu 24.04, supported by that installed Playwright version. The next remote run passed typecheck/lint/unit tests and 164 E2E tests, but exposed a category-edit test selector matching both the updated row and a closing-dialog option. That assertion now scopes to the category row; application code is unchanged. The corrected full local check passed again: typecheck, lint, 212 unit tests and 165 E2E tests, without retries. A follow-up push reruns GitHub CI; its result is not claimed here.
+
+## Database-test timeout investigation
+
+GitHub run 40749997623 failed two existing tests at Vitest's five-second per-test limit: migration/idempotency (5.758 s) and migrated-database readiness (5.207 s). No SQL assertion failed. Both files had passed on the preceding GitHub run, and the unchanged tests passed locally. The first database construction in each file included cold PGlite WASM initialization inside the timed test, under the default jsdom environment, with no client cleanup. This supports a setup-timing failure on the shared runner rather than evidence of incorrect migrations.
+
+A local phase measurement found 604 ms for cold startup and 33 ms for migrations; the second fresh database took 450 ms and 35 ms respectively. These measurements describe the local machine, not GitHub's hardware.
+
+The two test files now use Node, await a fresh database's `waitReady` in a bounded 30-second setup hook, and close each client afterward. Readiness tests also apply fixture migrations during setup; migration tests still execute `runMigrations` in their test bodies. All original assertions and the default five-second test deadline remain intact; no retries, skipped tests or global timeout increases were added. The pure connection-failure test does not initialize a database. See [Vitest hooks](https://vitest.dev/api/hooks.html) and [PGlite lifecycle](https://pglite.dev/docs/api).
+
+The five focused tests passed. The existing Vite shutdown warning remained after explicit database cleanup, so this change does not claim to resolve that separate diagnostic. The full local `pnpm run check` passed afterward: typecheck, lint, 212 unit tests and 165 E2E tests, without retries. The exact committed change is being verified by GitHub CI.
